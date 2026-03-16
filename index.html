@@ -282,7 +282,8 @@
 
   <div id="screen-divisao" class="screen">
     <div id="div-hero-sec"></div>
-    <div class="section-title">Este mês</div>
+    <div id="div-quitar-sec"></div>
+    <div class="section-title">Gastos divididos este mês</div>
     <div class="card" id="div-mes-list"></div>
     <div class="section-title">Histórico <span class="see-all" id="hist-toggle" onclick="toggleHist()">mostrar →</span></div>
     <div id="div-hist" class="hidden">
@@ -423,7 +424,32 @@
   </div>
 </div>
 
-<!-- MODAL: ORÇAMENTOS -->
+<!-- MODAL: QUITAR -->
+<div class="modal-overlay" id="modal-quitar">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">💸 Registrar Pagamento</div>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:16px" id="quitar-desc"></p>
+    <div class="type-toggle">
+      <button class="type-btn ag" id="qbtn-tudo" onclick="setQuitarTipo('tudo')">✅ Quitar tudo</button>
+      <button class="type-btn" id="qbtn-parcial" onclick="setQuitarTipo('parcial')">💰 Parcial</button>
+    </div>
+    <div class="form-group hidden" id="quitar-val-group">
+      <label>Valor pago (R$)</label>
+      <input id="quitar-val" type="number" step="0.01" min="0.01" placeholder="0,00"/>
+    </div>
+    <div class="form-group">
+      <label>Quem está pagando?</label>
+      <select id="quitar-quem"></select>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="btn btn-ghost" onclick="closeModal('modal-quitar')">Cancelar</button>
+      <button class="btn btn-primary" onclick="saveQuitar()">💾 Confirmar</button>
+    </div>
+  </div>
+</div>
+
+
 <div class="modal-overlay" id="modal-orc">
   <div class="modal">
     <div class="modal-handle"></div>
@@ -462,7 +488,7 @@ let currentMonth=new Date(); currentMonth.setDate(1);
 let txTab='todas', catFilter='Todas', chartTab='categorias';
 let chartInstance=null, selectedColor=COLORS[0];
 let txTipo='gasto', txDiv='nao', cfDiv='nao';
-let allTx=[], allMetas=[], allOrc=[], allCF=[];
+let allTx=[], allMetas=[], allOrc=[], allCF=[], allQuit=[];
 let histVisible=false;
 
 // ══════════════════════════════════════
@@ -525,13 +551,14 @@ function setTodayDates(){
 // ══════════════════════════════════════
 async function loadAll(){
   try{
-    const [tx,mt,orc,cf]=await Promise.all([
+    const [tx,mt,orc,cf,qt]=await Promise.all([
       sb.from('transactions').select('*').order('data',{ascending:false}),
       sb.from('metas').select('*').order('created_at',{ascending:false}),
       sb.from('orcamentos').select('*').order('categoria'),
-      sb.from('contas_fixas').select('*').order('created_at',{ascending:false})
+      sb.from('contas_fixas').select('*').order('created_at',{ascending:false}),
+      sb.from('quitacoes').select('*').order('created_at',{ascending:false})
     ]);
-    allTx=tx.data||[]; allMetas=mt.data||[]; allOrc=orc.data||[]; allCF=cf.data||[];
+    allTx=tx.data||[]; allMetas=mt.data||[]; allOrc=orc.data||[]; allCF=cf.data||[]; allQuit=qt.data||[];
   }catch(e){showToast('Erro ao carregar dados','error')}
 }
 
@@ -626,15 +653,23 @@ function calcSaldoMes(txList){
 }
 
 function calcSaldoGlobal(){
-  // Saldo acumulado de todos os meses
-  const byMonth={};
-  allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao').forEach(t=>{
-    const mk=t.data.substring(0,7);
-    if(!byMonth[mk]) byMonth[mk]=[];
-    byMonth[mk].push(t);
-  });
   let total=0;
-  Object.values(byMonth).forEach(txs=>total+=calcSaldoMes(txs));
+  allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao').forEach(t=>{
+    const v=parseFloat(t.valor);
+    if(t.divisao==='50-50'){
+      if(t.pago_por==='eu') total+=v/2;
+      else if(t.pago_por==='conjuge') total-=v/2;
+    } else if(t.divisao==='total'){
+      if(t.pago_por==='eu') total+=v;
+      else if(t.pago_por==='conjuge') total-=v;
+    }
+  });
+  // Desconta quitações (positivo = parceiro pagou, negativo = eu paguei)
+  allQuit.forEach(q=>{
+    const v=parseFloat(q.valor);
+    if(q.quem_quitou==='conjuge') total-=v;
+    else total+=v;
+  });
   return total;
 }
 
@@ -699,7 +734,7 @@ function renderTransacoes(){
   ).join('');
 }
 
-function txHTML(t){
+function txHTML(t, showActions=false){
   const isG=t.tipo==='gasto';
   const icon=CAT_ICONS[t.categoria]||'💡';
   const color=CAT_COLORS[t.categoria]||'#94a3b8';
@@ -716,21 +751,50 @@ function txHTML(t){
     const outro=t.pago_por==='eu'?partnerName:myName;
     divHint=`<span class="tx-div-hint">${outro} deve ${fmt(parseFloat(t.valor))}</span>`;
   }
-  return`<div class="tx-item" onclick="deleteTxConfirm('${t.id}','${t.descricao}')">
-    <div class="tx-icon" style="background:${color}22">${icon}</div>
-    <div class="tx-info">
-      <div class="tx-name">${t.descricao}</div>
-      <div class="tx-meta">${t.categoria} · ${pagou} ${divBadge}</div>
-    </div>
-    <div class="tx-amount ${isG?'neg':'pos'}">${isG?'-':'+'}${fmt(parseFloat(t.valor))}${divHint}</div>
+  const actions=`<div style="display:flex;gap:4px;margin-top:6px">
+    <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();editTx('${t.id}')">✏️ Editar</button>
+    <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteTxConfirm('${t.id}','${t.descricao}')">🗑️</button>
   </div>`;
+  return`<div class="tx-item" style="flex-wrap:wrap;align-items:flex-start" onclick="toggleTxActions(this)">
+    <div style="display:flex;align-items:center;gap:11px;width:100%">
+      <div class="tx-icon" style="background:${color}22">${icon}</div>
+      <div class="tx-info">
+        <div class="tx-name">${t.descricao}</div>
+        <div class="tx-meta">${t.categoria} · ${pagou} ${divBadge}</div>
+      </div>
+      <div class="tx-amount ${isG?'neg':'pos'}">${isG?'-':'+'}${fmt(parseFloat(t.valor))}${divHint}</div>
+    </div>
+    <div class="tx-actions hidden" style="width:100%;padding-left:49px">${actions}</div>
+  </div>`;
+}
+
+function toggleTxActions(el){
+  const actions=el.querySelector('.tx-actions');
+  actions.classList.toggle('hidden');
+}
+
+function editTx(id){
+  const t=allTx.find(x=>x.id===id); if(!t) return;
+  document.getElementById('tx-id').value=t.id;
+  document.getElementById('tx-desc').value=t.descricao;
+  document.getElementById('tx-valor').value=t.valor;
+  document.getElementById('tx-obs').value=t.observacao||'';
+  document.getElementById('tx-data').value=t.data;
+  document.getElementById('mtx-title').textContent='Editar Transação';
+  setTipo(t.tipo);
+  // Set categoria
+  document.getElementById('tx-cat').value=t.categoria;
+  // Set pago_por
+  document.getElementById('tx-pago').value=t.pago_por;
+  setDiv(t.divisao||'nao');
+  openModal('modal-tx');
 }
 
 async function deleteTxConfirm(id,name){
   if(!confirm(`Excluir "${name}"?`)) return;
   await sb.from('transactions').delete().eq('id',id);
   allTx=allTx.filter(t=>t.id!==id);
-  renderDashboard(); renderTransacoes();
+  renderDashboard(); renderTransacoes(); if(currentTab==='divisao') renderDivisao();
   showToast('Transação excluída','success');
 }
 
@@ -739,18 +803,23 @@ async function deleteTxConfirm(id,name){
 // ══════════════════════════════════════
 function renderDivisao(){
   const txMes=txOfMonth();
-  const saldoMes=calcSaldoMes(txMes);
-  const saldoTotal=calcSaldoGlobal();
+  const saldoGlobal=calcSaldoGlobal();
 
-  // Hero card — saldo do mês atual
+  // Hero — saldo total acumulado
   const heroEl=document.getElementById('div-hero-sec');
-  if(saldoMes===0){
-    heroEl.innerHTML=`<div class="div-hero dh-zero"><div class="div-hero-label">Este mês — quites! ✅</div><div class="div-hero-value">R$ 0,00</div></div>`;
-  } else if(saldoMes>0){
-    heroEl.innerHTML=`<div class="div-hero dh-pos"><div class="div-hero-label">💚 ${partnerName} deve para ${myName}</div><div class="div-hero-value">${fmt(saldoMes)}</div><div class="div-hero-sub">neste mês</div></div>`;
+  if(Math.abs(saldoGlobal)<0.01){
+    heroEl.innerHTML=`<div class="div-hero dh-zero"><div class="div-hero-label">✅ Estão quites!</div><div class="div-hero-value">R$ 0,00</div><div class="div-hero-sub">saldo acumulado</div></div>`;
+  } else if(saldoGlobal>0){
+    heroEl.innerHTML=`<div class="div-hero dh-pos"><div class="div-hero-label">💚 ${partnerName} deve para ${myName}</div><div class="div-hero-value">${fmt(saldoGlobal)}</div><div class="div-hero-sub">saldo acumulado total</div></div>`;
   } else {
-    heroEl.innerHTML=`<div class="div-hero dh-neg"><div class="div-hero-label">🔴 ${myName} deve para ${partnerName}</div><div class="div-hero-value">${fmt(Math.abs(saldoMes))}</div><div class="div-hero-sub">neste mês</div></div>`;
+    heroEl.innerHTML=`<div class="div-hero dh-neg"><div class="div-hero-label">🔴 ${myName} deve para ${partnerName}</div><div class="div-hero-value">${fmt(Math.abs(saldoGlobal))}</div><div class="div-hero-sub">saldo acumulado total</div></div>`;
   }
+
+  // Botão Quitar
+  const quitSec=document.getElementById('div-quitar-sec');
+  if(Math.abs(saldoGlobal)>=0.01){
+    quitSec.innerHTML=`<button class="btn btn-primary" style="margin-bottom:12px" onclick="openQuitar(${saldoGlobal})">💸 Registrar Pagamento</button>`;
+  } else { quitSec.innerHTML=''; }
 
   // Lista de gastos divididos do mês
   const divTx=txMes.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao');
@@ -761,9 +830,7 @@ function renderDivisao(){
     mesEl.innerHTML=divTx.map(t=>{
       const pagou=t.pago_por==='eu'?myName:partnerName;
       const outro=t.pago_por==='eu'?partnerName:myName;
-      let deveTexto='';
-      if(t.divisao==='50-50') deveTexto=`${outro} deve ${fmt(parseFloat(t.valor)/2)}`;
-      else deveTexto=`${outro} deve ${fmt(parseFloat(t.valor))}`;
+      const deveTexto=t.divisao==='50-50'?`${outro} deve ${fmt(parseFloat(t.valor)/2)}`:`${outro} deve ${fmt(parseFloat(t.valor))}`;
       return`<div class="tx-item">
         <div class="tx-icon" style="background:${CAT_COLORS[t.categoria]||'#333'}22">${CAT_ICONS[t.categoria]||'💡'}</div>
         <div class="tx-info">
@@ -778,30 +845,37 @@ function renderDivisao(){
     }).join('');
   }
 
-  // Histórico por mês
   renderHistorico();
 }
 
 function renderHistorico(){
-  const byMonth={};
-  allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao').forEach(t=>{
-    const mk=t.data.substring(0,7);
-    if(!byMonth[mk]) byMonth[mk]=[];
-    byMonth[mk].push(t);
-  });
-  const meses=Object.keys(byMonth).sort().reverse();
   const histEl=document.getElementById('div-hist-list');
-  if(!meses.length){histEl.innerHTML=`<div style="padding:12px;color:var(--text-dim);font-size:13px;text-align:center">Sem histórico ainda</div>`;return}
-  let acum=0;
-  histEl.innerHTML=meses.map(mk=>{
+  // Meses com gastos divididos
+  const meses=new Set([
+    ...allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao').map(t=>t.data.substring(0,7)),
+    ...allQuit.map(q=>q.created_at.substring(0,7))
+  ]);
+  const sorted=[...meses].sort().reverse();
+  if(!sorted.length){histEl.innerHTML=`<div style="padding:12px;color:var(--text-dim);font-size:13px;text-align:center">Sem histórico ainda</div>`;return}
+
+  histEl.innerHTML=sorted.map(mk=>{
     const [y,m]=mk.split('-');
-    const sal=calcSaldoMes(byMonth[mk]);
-    acum+=sal;
+    const txsMes=allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao'&&t.data.startsWith(mk));
+    const sal=calcSaldoMes(txsMes);
+    const quitsMes=allQuit.filter(q=>q.created_at.startsWith(mk));
+    const totalQuit=quitsMes.reduce((s,q)=>s+parseFloat(q.valor),0);
     const cor=sal>0?'var(--green)':sal<0?'var(--red)':'var(--text-dim)';
-    return`<div class="hist-item">
-      <span class="hist-month">${MONTHS[parseInt(m)-1].substring(0,3)} ${y}</span>
-      <span style="font-size:12px;color:var(--text-dim);flex:1;padding-left:8px">${sal>0?`${partnerName} devia`:sal<0?`${myName} devia`:'Quites'}</span>
-      <span class="hist-val" style="color:${cor}">${sal!==0?fmt(Math.abs(sal)):'—'}</span>
+    const quitHTML=quitsMes.map(q=>{
+      const quem=q.quem_quitou==='eu'?myName:partnerName;
+      return`<div style="font-size:11px;color:var(--green);padding:2px 0">✅ ${quem} pagou ${fmt(parseFloat(q.valor))}</div>`;
+    }).join('');
+    return`<div style="padding:10px 0;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-family:'Syne';font-weight:700;font-size:13px;min-width:70px">${MONTHS[parseInt(m)-1].substring(0,3)} ${y}</span>
+        <span style="font-size:12px;color:var(--text-dim);flex:1">${sal>0?`${partnerName} devia`:sal<0?`${myName} devia`:'Quites'}</span>
+        <span style="font-family:'Syne';font-weight:700;font-size:13px;color:${cor}">${sal!==0?fmt(Math.abs(sal)):'—'}</span>
+      </div>
+      ${quitHTML}
     </div>`;
   }).join('');
 }
@@ -811,6 +885,44 @@ function toggleHist(){
   document.getElementById('div-hist').classList.toggle('hidden',!histVisible);
   document.getElementById('hist-toggle').textContent=histVisible?'ocultar ←':'mostrar →';
 }
+
+// ══════════════════════════════════════
+// QUITAR
+// ══════════════════════════════════════
+let quitarTipo='tudo', saldoAtualQuitar=0;
+
+function openQuitar(saldo){
+  saldoAtualQuitar=saldo;
+  const devedor=saldo>0?partnerName:myName;
+  const credor=saldo>0?myName:partnerName;
+  document.getElementById('quitar-desc').textContent=`${devedor} deve ${fmt(Math.abs(saldo))} para ${credor}`;
+  document.getElementById('quitar-quem').innerHTML=`<option value="eu">${myName}</option><option value="conjuge">${partnerName}</option>`;
+  // Pré-seleciona quem deve
+  document.getElementById('quitar-quem').value=saldo>0?'conjuge':'eu';
+  setQuitarTipo('tudo');
+  openModal('modal-quitar');
+}
+
+function setQuitarTipo(tipo){
+  quitarTipo=tipo;
+  document.getElementById('qbtn-tudo').className='type-btn '+(tipo==='tudo'?'ag':'');
+  document.getElementById('qbtn-parcial').className='type-btn '+(tipo==='parcial'?'ar':'');
+  document.getElementById('quitar-val-group').classList.toggle('hidden', tipo==='tudo');
+  if(tipo==='tudo') document.getElementById('quitar-val').value=Math.abs(saldoAtualQuitar).toFixed(2);
+}
+
+async function saveQuitar(){
+  const quem=document.getElementById('quitar-quem').value;
+  const val=parseFloat(document.getElementById('quitar-val').value);
+  if(!val||val<=0){showToast('Informe o valor','error');return}
+  const mesRef=fmtMonthKey(currentMonth);
+  const{data:r}=await sb.from('quitacoes').insert({valor:val,quem_quitou:quem,mes_referencia:mesRef,observacao:null}).select().single();
+  allQuit.unshift(r);
+  closeModal('modal-quitar');
+  renderDivisao();
+  showToast('Pagamento registrado! 🎉','success');
+}
+
 
 // ══════════════════════════════════════
 // METAS
