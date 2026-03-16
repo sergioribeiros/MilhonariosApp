@@ -652,9 +652,10 @@ function calcSaldoMes(txList){
   return saldo;
 }
 
-function calcSaldoGlobal(){
+// Calcula saldo acumulado ATÉ o mês informado (inclusive)
+function calcSaldoAte(ateMk){
   let total=0;
-  allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao').forEach(t=>{
+  allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao'&&t.data.substring(0,7)<=ateMk).forEach(t=>{
     const v=parseFloat(t.valor);
     if(t.divisao==='50-50'){
       if(t.pago_por==='eu') total+=v/2;
@@ -664,13 +665,17 @@ function calcSaldoGlobal(){
       else if(t.pago_por==='conjuge') total-=v;
     }
   });
-  // Desconta quitações (positivo = parceiro pagou, negativo = eu paguei)
-  allQuit.forEach(q=>{
+  // Desconta quitações até este mês
+  allQuit.filter(q=>q.created_at.substring(0,7)<=ateMk).forEach(q=>{
     const v=parseFloat(q.valor);
     if(q.quem_quitou==='conjuge') total-=v;
     else total+=v;
   });
   return total;
+}
+
+function calcSaldoGlobal(){
+  return calcSaldoAte(fmtMonthKey(currentMonth));
 }
 
 // ══════════════════════════════════════
@@ -850,7 +855,6 @@ function renderDivisao(){
 
 function renderHistorico(){
   const histEl=document.getElementById('div-hist-list');
-  // Meses com gastos divididos
   const meses=new Set([
     ...allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao').map(t=>t.data.substring(0,7)),
     ...allQuit.map(q=>q.created_at.substring(0,7))
@@ -860,20 +864,25 @@ function renderHistorico(){
 
   histEl.innerHTML=sorted.map(mk=>{
     const [y,m]=mk.split('-');
+    // Saldo acumulado ATÉ este mês
+    const saldoAte=calcSaldoAte(mk);
+    // Gastos divididos só deste mês
     const txsMes=allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao'&&t.data.startsWith(mk));
-    const sal=calcSaldoMes(txsMes);
+    // Quitações deste mês
     const quitsMes=allQuit.filter(q=>q.created_at.startsWith(mk));
-    const totalQuit=quitsMes.reduce((s,q)=>s+parseFloat(q.valor),0);
-    const cor=sal>0?'var(--green)':sal<0?'var(--red)':'var(--text-dim)';
+    const cor=saldoAte>0.01?'var(--green)':saldoAte<-0.01?'var(--red)':'var(--green)';
+    const saldoLabel=saldoAte>0.01?`${partnerName} devia`:saldoAte<-0.01?`${myName} devia`:'✅ Quites';
     const quitHTML=quitsMes.map(q=>{
       const quem=q.quem_quitou==='eu'?myName:partnerName;
-      return`<div style="font-size:11px;color:var(--green);padding:2px 0">✅ ${quem} pagou ${fmt(parseFloat(q.valor))}</div>`;
+      return`<div style="font-size:11px;color:var(--green);padding:2px 0 0 70px">✅ ${quem} pagou ${fmt(parseFloat(q.valor))}</div>`;
     }).join('');
+    const gastosCount=txsMes.length;
     return`<div style="padding:10px 0;border-bottom:1px solid var(--border)">
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-family:'Syne';font-weight:700;font-size:13px;min-width:70px">${MONTHS[parseInt(m)-1].substring(0,3)} ${y}</span>
-        <span style="font-size:12px;color:var(--text-dim);flex:1">${sal>0?`${partnerName} devia`:sal<0?`${myName} devia`:'Quites'}</span>
-        <span style="font-family:'Syne';font-weight:700;font-size:13px;color:${cor}">${sal!==0?fmt(Math.abs(sal)):'—'}</span>
+        <span style="font-size:12px;color:var(--text-dim);flex:1">${saldoLabel}${gastosCount>0?` · ${gastosCount} gasto${gastosCount>1?'s':''} dividido${gastosCount>1?'s':''}`:''}
+        </span>
+        <span style="font-family:'Syne';font-weight:700;font-size:13px;color:${cor}">${Math.abs(saldoAte)>=0.01?fmt(Math.abs(saldoAte)):'—'}</span>
       </div>
       ${quitHTML}
     </div>`;
