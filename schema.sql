@@ -1,8 +1,15 @@
--- =============================================
--- MILHONÁRIOS 🌽 — SCHEMA DO SUPABASE
--- Cole este SQL no SQL Editor do Supabase e clique em "Run"
--- =============================================
+-- MILHONÁRIOS 🌽 - SCHEMA v2
+-- Cole no SQL Editor do Supabase e clique Run
 
+-- Apaga tabelas antigas se existirem
+DROP TABLE IF EXISTS transactions CASCADE;
+DROP TABLE IF EXISTS metas CASCADE;
+DROP TABLE IF EXISTS divisoes CASCADE;
+DROP TABLE IF EXISTS orcamentos CASCADE;
+DROP TABLE IF EXISTS contas_fixas CASCADE;
+
+-- Transações (gastos e receitas)
+-- divisao: 'nao' = sem divisão | '50-50' = divide meio a meio | 'total' = quem pagou cobrou tudo do outro
 CREATE TABLE transactions (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -10,11 +17,14 @@ CREATE TABLE transactions (
   valor DECIMAL(10,2) NOT NULL,
   tipo TEXT NOT NULL CHECK (tipo IN ('gasto','receita')),
   categoria TEXT NOT NULL,
-  pessoa TEXT NOT NULL CHECK (pessoa IN ('eu','conjuge','casal')),
+  pago_por TEXT NOT NULL CHECK (pago_por IN ('sergio','brenda','casal')),
+  divisao TEXT NOT NULL DEFAULT 'nao' CHECK (divisao IN ('nao','50-50','total')),
   data DATE NOT NULL,
-  observacao TEXT
+  observacao TEXT,
+  conta_fixa_id UUID
 );
 
+-- Metas de economia
 CREATE TABLE metas (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -26,16 +36,7 @@ CREATE TABLE metas (
   concluida BOOLEAN DEFAULT FALSE
 );
 
-CREATE TABLE divisoes (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  descricao TEXT NOT NULL,
-  valor_total DECIMAL(10,2) NOT NULL,
-  pago_por TEXT NOT NULL CHECK (pago_por IN ('eu','conjuge')),
-  data DATE NOT NULL,
-  quitado BOOLEAN DEFAULT FALSE
-);
-
+-- Orçamentos mensais por categoria
 CREATE TABLE orcamentos (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -44,13 +45,29 @@ CREATE TABLE orcamentos (
   ativo BOOLEAN DEFAULT TRUE
 );
 
--- Habilitar acesso público (app privado do casal)
+-- Contas fixas recorrentes
+CREATE TABLE contas_fixas (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  descricao TEXT NOT NULL,
+  valor DECIMAL(10,2) NOT NULL,
+  categoria TEXT NOT NULL,
+  pago_por TEXT NOT NULL CHECK (pago_por IN ('sergio','brenda','casal')),
+  divisao TEXT NOT NULL DEFAULT 'nao' CHECK (divisao IN ('nao','50-50','total')),
+  dia_vencimento INTEGER DEFAULT 1,
+  repetir_meses INTEGER DEFAULT 0,
+  meses_restantes INTEGER DEFAULT 0,
+  ativa BOOLEAN DEFAULT TRUE,
+  mes_inicio TEXT NOT NULL
+);
+
+-- RLS público
 ALTER TABLE transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE metas ENABLE ROW LEVEL SECURITY;
-ALTER TABLE divisoes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orcamentos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE contas_fixas ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "publico" ON transactions FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "publico" ON metas FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "publico" ON divisoes FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "publico" ON orcamentos FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "pub" ON transactions FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "pub" ON metas FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "pub" ON orcamentos FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "pub" ON contas_fixas FOR ALL USING (true) WITH CHECK (true);
