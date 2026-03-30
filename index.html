@@ -655,14 +655,12 @@ function calcSaldoMes(txList){
   let saldo=0;
   txList.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao').forEach(t=>{
     const v=parseFloat(t.valor)||0;
-    const div=(t.divisao||'').toLowerCase();
-    const pago=(t.pago_por||'').toLowerCase();
-    if(div==='50-50'){
-      if(pago==='serginho') saldo+=v/2;
-      else if(pago==='brendinha') saldo-=v/2;
-    } else if(div==='total'){
-      if(pago==='serginho') saldo+=v;
-      else if(pago==='brendinha') saldo-=v;
+    if(t.divisao==='50-50'){
+      if(t.pago_por==='serginho') saldo+=v/2;
+      else if(t.pago_por==='brendinha') saldo-=v/2;
+    } else if(t.divisao==='total'){
+      if(t.pago_por==='serginho') saldo+=v;
+      else if(t.pago_por==='brendinha') saldo-=v;
     }
   });
   return saldo;
@@ -670,7 +668,6 @@ function calcSaldoMes(txList){
 
 // Calcula saldo acumulado ATÉ o mês informado (inclusive)
 // Positivo = Brendinha deve para Serginho
-// Quitações funcionam como reset
 function calcSaldoAte(ateMk){
   const quitsAte=allQuit
     .filter(q=>q.created_at.substring(0,7)<=ateMk)
@@ -679,10 +676,10 @@ function calcSaldoAte(ateMk){
   const calcTx=(txList)=>{
     let s=0;
     txList.forEach(t=>{
-      if(!t||!t.tipo||t.tipo.toLowerCase()!=='gasto') return;
-      const div=(t.divisao||'').toLowerCase();
-      const pago=(t.pago_por||'').toLowerCase();
-      if(div==='nao'||!div) return;
+      if(!t||!t.tipo||t.tipo!=='gasto') return;
+      const div=t.divisao||'nao';
+      const pago=t.pago_por||'';
+      if(div==='nao') return;
       const v=parseFloat(t.valor)||0;
       if(div==='50-50'){
         if(pago==='serginho') s+=v/2;
@@ -706,7 +703,7 @@ function calcSaldoAte(ateMk){
   let saldoAnterior=calcTx(allTx.filter(t=>t&&t.data&&t.data.substring(0,7)<ultimaMk));
   quitsAte.forEach(q=>{
     const v=parseFloat(q.valor)||0;
-    if((q.quem_quitou||'').toLowerCase()==='brendinha') saldoAnterior-=v;
+    if(q.quem_quitou==='brendinha') saldoAnterior-=v;
     else saldoAnterior+=v;
   });
 
@@ -867,8 +864,7 @@ function renderDivisao(){
   } else { quitSec.innerHTML=''; }
 
   // Botão Zerar Divisão
-  const zerarSec=document.getElementById('div-zerar-sec');
-  zerarSec.innerHTML=`<button class="btn btn-ghost" style="margin-bottom:12px;border-color:var(--red);color:var(--red)" onclick="confirmarZerarDivisao()">🗑️ Zerar divisão</button>`;
+  document.getElementById('div-zerar-sec').innerHTML=`<button class="btn btn-danger" style="margin-bottom:12px" onclick="confirmarZerarDivisao()">🗑️ Zerar divisão</button>`;
 
   // Lista de gastos divididos do mês
   const divTx=txMes.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao');
@@ -943,12 +939,10 @@ function toggleHist(){
 // ZERAR DIVISÃO
 // ══════════════════════════════════════
 async function confirmarZerarDivisao(){
-  if(!confirm('Isso vai excluir TODAS as quitações e marcar todas as transações divididas como "não dividir". Tem certeza?')) return;
-  showToast('Zerando divisão...','success');
-  // Deleta todas as quitações
-  await sb.from('quitacoes').delete().neq('id','00000000-0000-0000-0000-000000000000');
+  if(!confirm('Isso vai excluir TODAS as quitações e zerar a divisão de todas as transações. Tem certeza?')) return;
+  const{error:e1}=await sb.from('quitacoes').delete().neq('id','00000000-0000-0000-0000-000000000000');
+  if(e1){showToast('Erro ao zerar quitações: '+e1.message,'error');return;}
   allQuit=[];
-  // Marca todas transações divididas como nao
   const txsDivididas=allTx.filter(t=>t.divisao&&t.divisao!=='nao');
   for(const t of txsDivididas){
     await sb.from('transactions').update({divisao:'nao'}).eq('id',t.id);
@@ -1149,11 +1143,11 @@ async function saveTx(){
   const payload={descricao:desc,valor,tipo:txTipo,categoria:cat,pago_por:pago,divisao:div,data,observacao:obs};
   if(id){
     const{data:r,error}=await sb.from('transactions').update(payload).eq('id',id).select().single();
-    if(error){showToast('Erro ao atualizar: '+error.message,'error');return;}
+    if(error){showToast('Erro: '+error.message,'error');return;}
     if(r) allTx=allTx.map(t=>t.id===id?r:t);
   } else {
     const{data:r,error}=await sb.from('transactions').insert(payload).select().single();
-    if(error){showToast('Erro ao salvar: '+error.message,'error');return;}
+    if(error){showToast('Erro: '+error.message,'error');return;}
     if(r) allTx.unshift(r);
   }
   closeModal('modal-tx');
@@ -1183,7 +1177,7 @@ async function saveCF(){
   const mesKey=fmtMonthKey(new Date());
   const payload={descricao:desc,valor,categoria:cat,pago_por:pago,divisao:cfDiv,dia_vencimento:dia,repetir_meses:meses,meses_restantes:meses,ativa:true,mes_inicio:mesKey};
   const{data:r,error}=await sb.from('contas_fixas').insert(payload).select().single();
-  if(error){showToast('Erro ao salvar conta fixa: '+error.message,'error');return;}
+  if(error){showToast('Erro: '+error.message,'error');return;}
   if(r) allCF.unshift(r);
   closeModal('modal-cf');
   await applyContasFixas();
