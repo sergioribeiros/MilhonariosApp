@@ -668,47 +668,28 @@ function calcSaldoMes(txList){
 
 // Calcula saldo acumulado ATÉ o mês informado (inclusive)
 // Positivo = Brendinha deve para Serginho
+// Negativo = Serginho deve para Brendinha
+// Lógica: saldo dos gastos divididos - pagamentos já realizados
 function calcSaldoAte(ateMk){
-  const quitsAte=allQuit
-    .filter(q=>q.created_at.substring(0,7)<=ateMk)
-    .sort((a,b)=>a.created_at.localeCompare(b.created_at));
-
-  const calcTx=(txList)=>{
-    let s=0;
-    txList.forEach(t=>{
-      if(!t||!t.tipo||t.tipo!=='gasto') return;
-      const div=t.divisao||'nao';
-      const pago=t.pago_por||'';
-      if(div==='nao') return;
-      const v=parseFloat(t.valor)||0;
-      if(div==='50-50'){
-        if(pago==='serginho') s+=v/2;
-        else if(pago==='brendinha') s-=v/2;
-      } else if(div==='total'){
-        if(pago==='serginho') s+=v;
-        else if(pago==='brendinha') s-=v;
-      }
-    });
-    return s;
-  };
-
-  if(!quitsAte.length){
-    return calcTx(allTx.filter(t=>t&&t.data&&t.data.substring(0,7)<=ateMk));
-  }
-
-  const ultimaQuit=quitsAte[quitsAte.length-1];
-  const ultimaData=ultimaQuit.created_at.substring(0,10);
-  const ultimaMk=ultimaQuit.created_at.substring(0,7);
-
-  let saldoAnterior=calcTx(allTx.filter(t=>t&&t.data&&t.data.substring(0,7)<ultimaMk));
-  quitsAte.forEach(q=>{
-    const v=parseFloat(q.valor)||0;
-    if(q.quem_quitou==='brendinha') saldoAnterior-=v;
-    else saldoAnterior+=v;
+  // Soma todos os gastos divididos até ateMk
+  let saldo=0;
+  allTx.filter(t=>t&&t.data&&t.data.substring(0,7)<=ateMk&&t.tipo==='gasto'&&t.divisao&&t.divisao!=='nao').forEach(t=>{
+    const v=parseFloat(t.valor)||0;
+    if(t.divisao==='50-50'){
+      if(t.pago_por==='serginho') saldo+=v/2;       // Serginho pagou → Brendinha deve metade
+      else if(t.pago_por==='brendinha') saldo-=v/2; // Brendinha pagou → Serginho deve metade
+    } else if(t.divisao==='total'){
+      if(t.pago_por==='serginho') saldo+=v;          // Serginho pagou → Brendinha deve tudo
+      else if(t.pago_por==='brendinha') saldo-=v;    // Brendinha pagou → Serginho deve tudo
+    }
   });
-
-  const saldoNovo=calcTx(allTx.filter(t=>t&&t.data&&t.data>ultimaData&&t.data.substring(0,7)<=ateMk));
-  return saldoAnterior+saldoNovo;
+  // Desconta todos os pagamentos (quitações) já feitos até ateMk
+  allQuit.filter(q=>q&&q.created_at&&q.created_at.substring(0,7)<=ateMk).forEach(q=>{
+    const v=parseFloat(q.valor)||0;
+    if(q.quem_quitou==='brendinha') saldo+=v; // Brendinha pagou → reduz o que ela devia
+    else if(q.quem_quitou==='serginho') saldo-=v; // Serginho pagou → reduz o que ele devia
+  });
+  return saldo;
 }
 
 function calcSaldoGlobal(){
@@ -983,8 +964,9 @@ async function saveQuitar(){
   const val=parseFloat(document.getElementById('quitar-val').value);
   if(!val||val<=0){showToast('Informe o valor','error');return}
   const mesRef=fmtMonthKey(currentMonth);
-  const{data:r}=await sb.from('quitacoes').insert({valor:val,quem_quitou:quem,mes_referencia:mesRef,observacao:null}).select().single();
-  allQuit.unshift(r);
+  const{data:r,error}=await sb.from('quitacoes').insert({valor:val,quem_quitou:quem,mes_referencia:mesRef,observacao:null}).select().single();
+  if(error){showToast('Erro: '+error.message,'error');return;}
+  if(r) allQuit.unshift(r);
   closeModal('modal-quitar');
   renderDivisao();
   showToast('Pagamento registrado! 🎉','success');
