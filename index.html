@@ -1144,8 +1144,15 @@ async function saveTx(){
   if(!desc||!valor||!data){showToast('Preencha os campos obrigatórios','error');return}
   const div=txTipo==='gasto'?txDiv:'nao';
   const payload={descricao:desc,valor,tipo:txTipo,categoria:cat,pago_por:pago,divisao:div,data,observacao:obs};
-  if(id){const{data:r}=await sb.from('transactions').update(payload).eq('id',id).select().single();allTx=allTx.map(t=>t.id===id?r:t)}
-  else{const{data:r}=await sb.from('transactions').insert(payload).select().single();allTx.unshift(r)}
+  if(id){
+    const{data:r,error}=await sb.from('transactions').update(payload).eq('id',id).select().single();
+    if(error){showToast('Erro ao atualizar: '+error.message,'error');return;}
+    if(r) allTx=allTx.map(t=>t.id===id?r:t);
+  } else {
+    const{data:r,error}=await sb.from('transactions').insert(payload).select().single();
+    if(error){showToast('Erro ao salvar: '+error.message,'error');return;}
+    if(r) allTx.unshift(r);
+  }
   closeModal('modal-tx');
   renderDashboard();
   if(currentTab==='transacoes') renderTransacoes();
@@ -1172,8 +1179,9 @@ async function saveCF(){
   if(!desc||!valor){showToast('Preencha descrição e valor','error');return}
   const mesKey=fmtMonthKey(new Date());
   const payload={descricao:desc,valor,categoria:cat,pago_por:pago,divisao:cfDiv,dia_vencimento:dia,repetir_meses:meses,meses_restantes:meses,ativa:true,mes_inicio:mesKey};
-  const{data:r}=await sb.from('contas_fixas').insert(payload).select().single();
-  allCF.unshift(r);
+  const{data:r,error}=await sb.from('contas_fixas').insert(payload).select().single();
+  if(error){showToast('Erro ao salvar conta fixa: '+error.message,'error');return;}
+  if(r) allCF.unshift(r);
   closeModal('modal-cf');
   await applyContasFixas();
   renderDashboard();
