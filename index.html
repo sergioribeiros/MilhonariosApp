@@ -232,8 +232,13 @@
     <div class="setup-hint">🔑 Supabase → Project Settings → API → copie a URL e a anon key</div>
     <div><label>URL do Projeto</label><input id="su-url" type="url" placeholder="https://xxxx.supabase.co"/></div>
     <div><label>Anon Public Key</label><input id="su-key" type="text" placeholder="eyJ..."/></div>
-    <div><label>Seu nome</label><input id="su-me" type="text" placeholder="Sérgio" maxlength="20"/></div>
-    <div><label>Nome do cônjuge</label><input id="su-partner" type="text" placeholder="Brenda" maxlength="20"/></div>
+    <div>
+      <label>Quem é você?</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px">
+        <button id="btn-serginho" class="type-btn" onclick="selectUser('serginho')" style="padding:14px;font-size:15px">👨 Serginho</button>
+        <button id="btn-brendinha" class="type-btn" onclick="selectUser('brendinha')" style="padding:14px;font-size:15px">👩 Brendinha</button>
+      </div>
+    </div>
     <button class="btn btn-primary" onclick="setupSave()">🌽 Começar!</button>
   </div>
 </div>
@@ -494,12 +499,19 @@ let histVisible=false;
 // ══════════════════════════════════════
 // SETUP
 // ══════════════════════════════════════
+let selectedUser='';
+function selectUser(who){
+  selectedUser=who;
+  document.getElementById('btn-serginho').className='type-btn '+(who==='serginho'?'ag':'');
+  document.getElementById('btn-brendinha').className='type-btn '+(who==='brendinha'?'ar':'');
+}
 function setupSave(){
   const url=document.getElementById('su-url').value.trim();
   const key=document.getElementById('su-key').value.trim();
-  const me=document.getElementById('su-me').value.trim();
-  const p=document.getElementById('su-partner').value.trim();
-  if(!url||!key||!me||!p){showToast('Preencha todos os campos!','error');return}
+  if(!url||!key){showToast('Preencha URL e Anon Key!','error');return}
+  if(!selectedUser){showToast('Selecione quem você é!','error');return}
+  const me=selectedUser==='serginho'?'Serginho':'Brendinha';
+  const p=selectedUser==='serginho'?'Brendinha':'Serginho';
   localStorage.setItem('sb_url',url);localStorage.setItem('sb_key',key);
   localStorage.setItem('my_name',me);localStorage.setItem('partner_name',p);
   location.reload();
@@ -635,43 +647,92 @@ function txOfMonth(){
 
 // ══════════════════════════════════════
 // DIVISÃO — SALDO CALCULATION
-// Positive = partner owes me | Negative = I owe partner
+// Positivo = Brendinha deve para Serginho (quem está logado como "eu")
+// Negativo = Serginho deve para Brendinha
 // ══════════════════════════════════════
 function calcSaldoMes(txList){
   let saldo=0;
   txList.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao').forEach(t=>{
     const v=parseFloat(t.valor);
     if(t.divisao==='50-50'){
-      if(t.pago_por==='eu') saldo+=v/2;       // partner owes me half
-      else if(t.pago_por==='conjuge') saldo-=v/2; // I owe partner half
+      // Quem pagou adiantou a metade do outro
+      if(t.pago_por==='eu') saldo+=v/2;        // eu paguei → conjuge me deve metade
+      else if(t.pago_por==='conjuge') saldo-=v/2; // conjuge pagou → eu devo metade
     } else if(t.divisao==='total'){
-      if(t.pago_por==='eu') saldo+=v;           // partner owes me all
-      else if(t.pago_por==='conjuge') saldo-=v;  // I owe partner all
+      if(t.pago_por==='eu') saldo+=v;           // eu paguei → conjuge deve tudo
+      else if(t.pago_por==='conjuge') saldo-=v;  // conjuge pagou → eu devo tudo
     }
   });
   return saldo;
 }
 
 // Calcula saldo acumulado ATÉ o mês informado (inclusive)
+// Quitações funcionam como reset: recalcula apenas a partir da última quitação
 function calcSaldoAte(ateMk){
-  let total=0;
-  allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao'&&t.data.substring(0,7)<=ateMk).forEach(t=>{
+  // Pega todas as quitações até este mês, ordenadas
+  const quitsAte=allQuit
+    .filter(q=>q.created_at.substring(0,7)<=ateMk)
+    .sort((a,b)=>a.created_at.localeCompare(b.created_at));
+
+  // Se não há quitações, soma tudo normalmente
+  if(!quitsAte.length){
+    let total=0;
+    allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao'&&t.data.substring(0,7)<=ateMk).forEach(t=>{
+      const v=parseFloat(t.valor);
+      if(t.divisao==='50-50'){
+        if(t.pago_por==='eu') total+=v/2;
+        else if(t.pago_por==='conjuge') total-=v/2;
+      } else if(t.divisao==='total'){
+        if(t.pago_por==='eu') total+=v;
+        else if(t.pago_por==='conjuge') total-=v;
+      }
+    });
+    return total;
+  }
+
+  // Pega a data da última quitação
+  const ultimaQuit=quitsAte[quitsAte.length-1];
+  const ultimaData=ultimaQuit.created_at.substring(0,10); // YYYY-MM-DD
+  const ultimaMk=ultimaQuit.created_at.substring(0,7);    // YYYY-MM
+
+  // Saldo que restou após a última quitação
+  // A quitação abate do saldo total anterior
+  let saldoAnterior=0;
+  allTx.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao'&&t.data.substring(0,7)<ultimaMk).forEach(t=>{
     const v=parseFloat(t.valor);
     if(t.divisao==='50-50'){
-      if(t.pago_por==='eu') total+=v/2;
-      else if(t.pago_por==='conjuge') total-=v/2;
+      if(t.pago_por==='eu') saldoAnterior+=v/2;
+      else if(t.pago_por==='conjuge') saldoAnterior-=v/2;
     } else if(t.divisao==='total'){
-      if(t.pago_por==='eu') total+=v;
-      else if(t.pago_por==='conjuge') total-=v;
+      if(t.pago_por==='eu') saldoAnterior+=v;
+      else if(t.pago_por==='conjuge') saldoAnterior-=v;
     }
   });
-  // Desconta quitações até este mês
-  allQuit.filter(q=>q.created_at.substring(0,7)<=ateMk).forEach(q=>{
+  // Desconta todas as quitações anteriores também
+  quitsAte.forEach(q=>{
     const v=parseFloat(q.valor);
-    if(q.quem_quitou==='conjuge') total-=v;
-    else total+=v;
+    if(q.quem_quitou==='conjuge') saldoAnterior-=v;
+    else saldoAnterior+=v;
   });
-  return total;
+
+  // Agora soma apenas as transações APÓS a última quitação até ateMk
+  let saldoNovo=0;
+  allTx.filter(t=>
+    t.tipo==='gasto'&&t.divisao!=='nao'&&
+    t.data>ultimaData&&
+    t.data.substring(0,7)<=ateMk
+  ).forEach(t=>{
+    const v=parseFloat(t.valor);
+    if(t.divisao==='50-50'){
+      if(t.pago_por==='eu') saldoNovo+=v/2;
+      else if(t.pago_por==='conjuge') saldoNovo-=v/2;
+    } else if(t.divisao==='total'){
+      if(t.pago_por==='eu') saldoNovo+=v;
+      else if(t.pago_por==='conjuge') saldoNovo-=v;
+    }
+  });
+
+  return saldoAnterior+saldoNovo;
 }
 
 function calcSaldoGlobal(){
