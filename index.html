@@ -684,10 +684,12 @@ function calcSaldoAte(ateMk){
     }
   });
   // Desconta todos os pagamentos (quitações) já feitos até ateMk
+  // Se saldo > 0: Brendinha deve → ela paga → saldo diminui → saldo -= v
+  // Se saldo < 0: Serginho deve → ele paga → saldo aumenta → saldo += v
   allQuit.filter(q=>q&&q.created_at&&q.created_at.substring(0,7)<=ateMk).forEach(q=>{
     const v=parseFloat(q.valor)||0;
-    if(q.quem_quitou==='brendinha') saldo+=v; // Brendinha pagou → reduz o que ela devia
-    else if(q.quem_quitou==='serginho') saldo-=v; // Serginho pagou → reduz o que ele devia
+    if(q.quem_quitou==='brendinha') saldo-=v; // Brendinha pagou → reduz o que ela devia
+    else if(q.quem_quitou==='serginho') saldo+=v; // Serginho pagou → reduz o que ele devia
   });
   return saldo;
 }
