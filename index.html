@@ -835,9 +835,9 @@ function renderDivisao(){
   if(Math.abs(saldoGlobal)<0.01){
     heroEl.innerHTML=`<div class="div-hero dh-zero"><div class="div-hero-label">✅ Estão quites!</div><div class="div-hero-value">R$ 0,00</div><div class="div-hero-sub">saldo acumulado</div></div>`;
   } else if(saldoGlobal>0){
-    heroEl.innerHTML=`<div class="div-hero dh-pos"><div class="div-hero-label">💚 ${partnerName} deve para ${myName}</div><div class="div-hero-value">${fmt(saldoGlobal)}</div><div class="div-hero-sub">saldo acumulado total</div></div>`;
+    heroEl.innerHTML=`<div class="div-hero dh-pos"><div class="div-hero-label">💚 Brendinha deve para Serginho</div><div class="div-hero-value">${fmt(saldoGlobal)}</div><div class="div-hero-sub">saldo acumulado total</div></div>`;
   } else {
-    heroEl.innerHTML=`<div class="div-hero dh-neg"><div class="div-hero-label">🔴 ${myName} deve para ${partnerName}</div><div class="div-hero-value">${fmt(Math.abs(saldoGlobal))}</div><div class="div-hero-sub">saldo acumulado total</div></div>`;
+    heroEl.innerHTML=`<div class="div-hero dh-neg"><div class="div-hero-label">🔴 Serginho deve para Brendinha</div><div class="div-hero-value">${fmt(Math.abs(saldoGlobal))}</div><div class="div-hero-sub">saldo acumulado total</div></div>`;
   }
 
   // Botão Quitar
@@ -894,7 +894,7 @@ function renderHistorico(){
     // Quitações deste mês
     const quitsMes=allQuit.filter(q=>q.created_at.startsWith(mk));
     const cor=saldoAte>0.01?'var(--green)':saldoAte<-0.01?'var(--red)':'var(--green)';
-    const saldoLabel=saldoAte>0.01?`${partnerName} devia`:saldoAte<-0.01?`${myName} devia`:'✅ Quites';
+    const saldoLabel=saldoAte>0.01?'Brendinha devia':saldoAte<-0.01?'Serginho devia':'✅ Quites';
     const quitHTML=quitsMes.map(q=>{
       const quem=q.quem_quitou==='serginho'?'Serginho':'Brendinha';
       return`<div style="font-size:11px;color:var(--green);padding:2px 0 0 70px">✅ ${quem} pagou ${fmt(parseFloat(q.valor))}</div>`;
@@ -943,8 +943,8 @@ let quitarTipo='tudo', saldoAtualQuitar=0;
 
 function openQuitar(saldo){
   saldoAtualQuitar=saldo;
-  const devedor=saldo>0?partnerName:myName;
-  const credor=saldo>0?myName:partnerName;
+  const devedor=saldo>0?'Brendinha':'Serginho';
+  const credor=saldo>0?'Serginho':'Brendinha';
   document.getElementById('quitar-desc').textContent=`${devedor} deve ${fmt(Math.abs(saldo))} para ${credor}`;
   document.getElementById('quitar-quem').innerHTML=`<option value="serginho">Serginho</option><option value="brendinha">Brendinha</option>`;
   // Pré-seleciona quem deve
