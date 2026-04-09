@@ -852,25 +852,64 @@ function renderDivisao(){
   // Lista de gastos divididos do mês
   const divTx=txMes.filter(t=>t.tipo==='gasto'&&t.divisao!=='nao');
   const mesEl=document.getElementById('div-mes-list');
+
+  // Quitações do mês atual
+  const mk=fmtMonthKey(currentMonth);
+  const quitsDoMes=allQuit.filter(q=>q&&q.created_at&&q.created_at.substring(0,7)===mk)
+    .sort((a,b)=>b.created_at.localeCompare(a.created_at));
+
+  // Saldo apenas deste mês (sem acumulado)
+  const saldoMes=calcSaldoMes(txMes);
+  // Quanto já foi quitado neste mês
+  const totalQuitadoMes=quitsDoMes.reduce((s,q)=>s+parseFloat(q.valor),0);
+  // Saldo ainda em aberto neste mês
+  const saldoEmAberto=saldoMes - (saldoMes>0 ? totalQuitadoMes : -totalQuitadoMes);
+  const mesFoiQuitado=Math.abs(saldoEmAberto)<0.01 && quitsDoMes.length>0;
+
   if(!divTx.length){
     mesEl.innerHTML=`<div class="empty" style="padding:20px"><div class="empty-icon">👌</div><div class="empty-text">Nenhum gasto dividido este mês</div></div>`;
+  } else if(mesFoiQuitado){
+    const ultimaQuit=quitsDoMes[0];
+    const dataQuit=fmtDateBR(ultimaQuit.created_at.substring(0,10));
+    const quem=ultimaQuit.quem_quitou==='serginho'?'Serginho':'Brendinha';
+    mesEl.innerHTML=`<div class="empty" style="padding:20px">
+      <div class="empty-icon">✅</div>
+      <div class="empty-text">Todos os gastos deste mês foram quitados</div>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:6px">${quem} quitou em ${dataQuit}</div>
+    </div>`;
   } else {
-    mesEl.innerHTML=divTx.map(t=>{
-      const pagou=t.pago_por==='serginho'?'Serginho':'Brendinha';
-      const outro=t.pago_por==='serginho'?'Brendinha':'Serginho';
-      const deveTexto=t.divisao==='50-50'?`${outro} deve ${fmt(parseFloat(t.valor)/2)}`:`${outro} deve ${fmt(parseFloat(t.valor))}`;
-      return`<div class="tx-item">
-        <div class="tx-icon" style="background:${CAT_COLORS[t.categoria]||'#333'}22">${CAT_ICONS[t.categoria]||'💡'}</div>
-        <div class="tx-info">
-          <div class="tx-name">${t.descricao}</div>
-          <div class="tx-meta">${pagou} pagou · ${t.divisao==='50-50'?'⚖️ 50/50':'💸 deve tudo'} · ${fmtDateBR(t.data)}</div>
-        </div>
-        <div class="tx-amount neg" style="text-align:right">
-          ${fmt(parseFloat(t.valor))}
-          <span class="tx-div-hint">${deveTexto}</span>
-        </div>
-      </div>`;
-    }).join('');
+    // Se houve quitação neste mês, esconde gastos anteriores à última quitação
+    const ultimaQuitData=quitsDoMes.length>0?quitsDoMes[0].created_at.substring(0,10):null;
+    const divTxVisiveis=ultimaQuitData?divTx.filter(t=>t.data>ultimaQuitData):divTx;
+    const quitadosCount=divTx.length-divTxVisiveis.length;
+
+    let html='';
+    if(quitadosCount>0){
+      const quem=quitsDoMes[0].quem_quitou==='serginho'?'Serginho':'Brendinha';
+      const dataQuit=fmtDateBR(ultimaQuitData);
+      html+=`<div style="padding:10px 14px;background:var(--green-dim);border-radius:var(--radius-sm);margin-bottom:8px;font-size:12px;color:var(--green)">✅ ${quem} quitou em ${dataQuit} — ${quitadosCount} gasto${quitadosCount>1?'s':''} anterior${quitadosCount>1?'es':''} ocult${quitadosCount>1?'os':'o'}</div>`;
+    }
+    if(divTxVisiveis.length){
+      html+=divTxVisiveis.map(t=>{
+        const pagou=t.pago_por==='serginho'?'Serginho':'Brendinha';
+        const outro=t.pago_por==='serginho'?'Brendinha':'Serginho';
+        const deveTexto=t.divisao==='50-50'?`${outro} deve ${fmt(parseFloat(t.valor)/2)}`:`${outro} deve ${fmt(parseFloat(t.valor))}`;
+        return`<div class="tx-item">
+          <div class="tx-icon" style="background:${CAT_COLORS[t.categoria]||'#333'}22">${CAT_ICONS[t.categoria]||'💡'}</div>
+          <div class="tx-info">
+            <div class="tx-name">${t.descricao}</div>
+            <div class="tx-meta">${pagou} pagou · ${t.divisao==='50-50'?'⚖️ 50/50':'💸 deve tudo'} · ${fmtDateBR(t.data)}</div>
+          </div>
+          <div class="tx-amount neg" style="text-align:right">
+            ${fmt(parseFloat(t.valor))}
+            <span class="tx-div-hint">${deveTexto}</span>
+          </div>
+        </div>`;
+      }).join('');
+    } else {
+      html+=`<div class="empty" style="padding:20px"><div class="empty-icon">👌</div><div class="empty-text">Nenhum gasto novo após a quitação</div></div>`;
+    }
+    mesEl.innerHTML=html;
   }
 
   renderHistorico();
